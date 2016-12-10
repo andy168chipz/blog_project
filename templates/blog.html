@@ -1,0 +1,36 @@
+{% extends "base.html" %}{% block content %}
+<div class="login-area">
+    {% if user %} Hi, {{user}} (<a href="/logout">logout</a>) | <a href="/newpost">Newpost</a>
+    {% else %}
+    <a class="login-link" href="/login">login</a> |
+    <a class="login-link" href="/signup">signup</a> {% endif %}
+</div>
+{% for article in articles %}
+<div class="article">
+    <div class="article-subject">
+        <h3>Subject: {{article.subject}}</h3>
+        <h6>{{article.created}}</h6>
+    </div>
+    <hr>
+    <div class="article-content">
+        <p>{{article.content}}</p>
+    </div>
+    <div class="edit">
+        {% if user %}
+        <a href="/comment/{{article.key().id()}}">Comment</a> {% endif %} {% if user == article.author%}
+        <a href="/edit/{{article.key().id()}}">Edit</a>
+        <a href="/delete/{{article.key().id()}}">Delete</a> {% endif %}
+    </div>
+    {% if article.comments.count() > 0 %}
+    <div class="comments">
+        <h4>comments to post : {{article.subject}}</h4> {% for comment in article.comments %}
+        <p>{{comment.text}}</p>
+        <div class="edit-comment">
+            {% if user == comment.author%}
+            <a href="/comment/{{article.key().id()}}/{{comment.key().id()}}">Edit</a>
+            <a href="/delete/{{article.key().id()}}/{{comment.key().id()}}">Delete</a> {% endif %}
+        </div>
+        <hr> {% endfor %}
+    </div>{% endif %}
+</div>
+{% endfor %} {% endblock content %} {# http://localhost:8080/6192449487634432 #}
