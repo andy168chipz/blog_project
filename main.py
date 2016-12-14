@@ -24,13 +24,10 @@ from google.appengine.ext import db
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(template_dir),
                                autoescape=True)
-USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
-PASS_RE = re.compile(r"^.{3,20}$")
-EMAIL_RE = re.compile(r"^[\S]+@[\S]+.[\S]+$")
-SECRET = 'imsosecret'
 
 
 def hash_str(s):
+    SECRET = 'imsosecret'
     return hmac.new(SECRET, s).hexdigest()
 
 
@@ -39,7 +36,6 @@ def make_secure_val(s):
 
 
 def check_secure_val(h):
-    # Your code here
     s = h.split('|')[0]
     if h == make_secure_val(s):
         return s
@@ -58,17 +54,15 @@ class Handler(webapp2.RequestHandler):
         self.write(self.render_str(template, **kw))
 
 
-class signup(Handler):
+class SignUpHandler(Handler):
 
     def valid_username(self, username):
-        return USER_RE.match(username)
+        user_re = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
+        return user_re.match(username)
 
     def user_name_exist(self, username):
-        q = db.GqlQuery("SELECT * FROM User")
-        for user in q:
-            if user.user == username:
-                return True
-        return False
+        user = datastore.User.by_name(username)
+        return user
 
     def set_secure_cookie(self, name, val):
         cookie_val = make_secure_val(val)
@@ -84,10 +78,12 @@ class signup(Handler):
         return cookie_val and check_secure_val(cookie_val)
 
     def valid_password(self, pw):
-        return PASS_RE.match(pw)
+        pass_re = re.compile(r"^.{3,20}$")
+        return pass_re.match(pw)
 
     def valid_email(self, email):
-        return EMAIL_RE.match(email)
+        email_re = re.compile(r"^[\S]+@[\S]+.[\S]+$")
+        return email_re.match(email)
 
     def get(self):
         self.render('signup.html')
@@ -136,7 +132,7 @@ class signup(Handler):
         self.user = uid
 
 
-class welcome(signup):
+class welcome(SignUpHandler):
     def get(self):
         if self.user:
             self.render('welcome.html', username=self.user)
@@ -144,7 +140,7 @@ class welcome(signup):
             self.redirect('/signup')
 
 
-class login(signup):
+class login(SignUpHandler):
 
     def get(self):
         self.render('login.html')
@@ -160,13 +156,13 @@ class login(signup):
             self.render('login.html', error="username or password is invalid")
 
 
-class logout(signup):
+class logout(SignUpHandler):
     def get(self):
         self.remove_cookie('id')
         self.redirect('/signup')
 
 
-class MainPage(signup):
+class MainPage(SignUpHandler):
 
     def get(self):
         q = db.GqlQuery("select * from Article order by created desc")
@@ -174,12 +170,10 @@ class MainPage(signup):
         params = {'articles': articles}
         if self.user:
             params['user'] = self.user
-        for article in articles:
-            print article.comments.count()
         self.render('blog.html', **params)
 
 
-class NewPost(signup):
+class NewPost(SignUpHandler):
 
     def render_post(self, subject='', content='', error=''):
         self.render(
@@ -194,6 +188,8 @@ class NewPost(signup):
             self.redirect('/login')
 
     def post(self):
+        if not self.user:
+            return self.redirect('/login')
         subject = self.request.get('subject')
         content = self.request.get('content')
         if subject and content:
@@ -207,7 +203,7 @@ class NewPost(signup):
             self.render_post(subject, content, error)
 
 
-class Blog(signup):
+class Blog(SignUpHandler):
     def get(self, id):
         print id
         key = db.Key.from_path('Article', int(id))
@@ -217,11 +213,17 @@ class Blog(signup):
         self.render('blog.html', articles=articles, user=self.user)
 
 
-class Delete(signup):
+class Delete(SignUpHandler):
     def get(self, id, comment_id=''):
         self.render("delete.html")
 
     def post(self, id, comment_id=''):
+        if not self.user:
+            return self.redirect('/login')
+        if comment_id and datastore.Comment.get_author(comment_id) != self.user:
+            return self.redirect('/deleteError')
+        elif id and datastore.Article.get_author(id) != self.user and not comment_id:
+            return self.redirect('/deleteError')
         yes = self.request.get('yes')
         no = self.request.get('no')
         if no:
@@ -234,7 +236,7 @@ class Delete(signup):
         self.redirect('/')
 
 
-class Edit(signup):
+class Edit(SignUpHandler):
     def render_post(self, subject='', content='', error=''):
         self.render(
             'newpost.html', subject=subject,
@@ -246,6 +248,8 @@ class Edit(signup):
         self.render_post(subject=article.subject, content=article.content)
 
     def post(self, id):
+        if id and datastore.Article.get_author(id) != self.user:
+            return self.redirect('/deleteError')
         subject = self.request.get('subject')
         content = self.request.get('content')
         if subject and content:
@@ -256,7 +260,7 @@ class Edit(signup):
             self.render_post(subject, content, error)
 
 
-class CommentPost(signup):
+class CommentPost(SignUpHandler):
     def render_comment(self, subject, text="", error=""):
         self.render('comment.html', subject=subject, text=text, error=error)
 
@@ -270,6 +274,7 @@ class CommentPost(signup):
     def post(self, id, comment_id=''):
         comment = self.request.get('comment')
         article = datastore.Article.by_id(id)
+        print self.user
         if not comment:
             self.render_comment(article.subject,
                                 error="COMMENTS CAN'T BE EMPTY")
@@ -279,16 +284,24 @@ class CommentPost(signup):
                                       author=self.user,
                                       text=comment)
             else:
-                c = datastore.Comment.by_id(comment_id)
-                c.text = comment
+                if comment_id and datastore.Comment.get_author(comment_id) != self.user:
+                    return self.redirect('/deleteError')
+                else:
+                    c = datastore.Comment.by_id(comment_id)
+                    c.text = comment
             c.put()
             time.sleep(.1)
             self.redirect('/')
 
 
+class DeleteError(SignUpHandler):
+    def get(self):
+        self.render('error.html')
+
+
 app = webapp2.WSGIApplication([
     ('/', MainPage),
-    ('/signup', signup),
+    ('/signup', SignUpHandler),
     ('/welcome', welcome),
     ('/login', login),
     ('/logout', logout),
@@ -298,5 +311,6 @@ app = webapp2.WSGIApplication([
     ('/delete/(\d+)', Delete),
     ('/delete/(\d+)/(\d+)', Delete),
     ('/comment/(\d+)', CommentPost),
-    ('/comment/(\d+)/(\d+)', CommentPost)
+    ('/comment/(\d+)/(\d+)', CommentPost),
+    ('/deleteError', DeleteError)
 ], debug=True)

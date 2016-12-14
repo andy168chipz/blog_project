@@ -1,27 +1,9 @@
 from google.appengine.ext import db
-import random
-import hmac
-import string
+import util
 """
 Datastore module
 A module that interacts with the Google datastore
 """
-
-
-def make_salt(length=5):
-    return ''.join(random.choice(string.letters) for x in range(length))
-
-
-def make_pw_hash(name, pw, salt=None):
-    if not salt:
-        salt = make_salt()
-    h = hmac.new(salt, name + pw).hexdigest()
-    return '%s|%s' % (salt, h)  # what gets store in db
-
-
-def valid_pw(name, pw, h):
-    salt = h.split('|')[0]  # get the salt
-    return make_pw_hash(name, str(pw), str(salt)) == h
 
 
 class User(db.Model):
@@ -40,7 +22,7 @@ class User(db.Model):
 
     @classmethod
     def register(cls, name, pw, email=None):
-        pw_hash = make_pw_hash(name, pw)
+        pw_hash = util.make_pw_hash(name, pw)
         return User(user=name,
                     password=pw_hash,
                     email=email)
@@ -49,7 +31,7 @@ class User(db.Model):
     def login(cls, name, pw):
         user = cls.by_name(name)
         if user:
-            return valid_pw(name, pw, user.password)
+            return util.valid_pw(name, pw, user.password)
 
 
 class Article(db.Model):
@@ -74,12 +56,21 @@ class Article(db.Model):
         article = cls.by_id(id)
         db.delete(article)
 
+    @classmethod
+    def get_author(cls, id):
+        return cls.by_id(id).author
+
 
 class Comment(db.Model):
     article = db.ReferenceProperty(Article, collection_name="comments")
     text = db.TextProperty(required=True)
     author = db.StringProperty(required=True)
     created = db.DateTimeProperty(auto_now_add=True)
+
+    @classmethod
+    def get_author(cls, id):
+        comment = cls.by_id(id)
+        return comment.author
 
     @classmethod
     def by_id(cls, id):
