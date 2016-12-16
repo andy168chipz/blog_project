@@ -18,7 +18,9 @@ import jinja2
 import re
 import hmac
 import time
-import datastore
+from comment import Comment
+from post import Post
+from user import User
 from google.appengine.ext import db
 
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
@@ -61,8 +63,8 @@ class SignUpHandler(Handler):
         return user_re.match(username)
 
     def user_name_exist(self, username):
-        user = datastore.User.by_name(username)
-        return user
+        u = User.by_name(username)
+        return u
 
     def set_secure_cookie(self, name, val):
         cookie_val = make_secure_val(val)
@@ -121,7 +123,7 @@ class SignUpHandler(Handler):
         if has_error:
             self.render('signup.html', **params)
         else:
-            u = datastore.User.register(username, password, email)
+            u = User.register(username, password, email)
             u.put()
             self.set_secure_cookie('id', username)
             self.redirect('/welcome')
@@ -148,7 +150,7 @@ class login(SignUpHandler):
     def post(self):
         username = self.request.get('username')
         password = self.request.get('password')
-        if datastore.User.login(username, password):
+        if User.login(username, password):
             print 'success'
             self.set_secure_cookie('id', username)
             self.redirect('/welcome')
@@ -193,7 +195,7 @@ class NewPost(SignUpHandler):
         subject = self.request.get('subject')
         content = self.request.get('content')
         if subject and content:
-            article = datastore.Article(
+            article = Post(
                 subject=subject, content=content, author=self.user)
             article.put()
             # print article.key().id()
@@ -220,18 +222,18 @@ class Delete(SignUpHandler):
     def post(self, id, comment_id=''):
         if not self.user:
             return self.redirect('/login')
-        if comment_id and datastore.Comment.get_author(comment_id) != self.user:
+        if comment_id and Comment.get_author(comment_id) != self.user:
             return self.redirect('/deleteError')
-        elif id and datastore.Article.get_author(id) != self.user and not comment_id:
+        elif id and Post.get_author(id) != self.user and not comment_id:
             return self.redirect('/deleteError')
         yes = self.request.get('yes')
         no = self.request.get('no')
         if no:
             self.redirect('/' + str(id))
         elif yes and comment_id:
-            datastore.Comment.delete(comment_id)
+            Comment.delete(comment_id)
         else:
-            datastore.Article.delete(id)
+            Post.delete(id)
         time.sleep(.1)
         self.redirect('/')
 
@@ -244,16 +246,16 @@ class Edit(SignUpHandler):
             Title="Edit Post", submit_text="Save")
 
     def get(self, id):
-        article = datastore.Article.by_id(id)
+        article = Post.by_id(id)
         self.render_post(subject=article.subject, content=article.content)
 
     def post(self, id):
-        if id and datastore.Article.get_author(id) != self.user:
+        if id and Post.get_author(id) != self.user:
             return self.redirect('/deleteError')
         subject = self.request.get('subject')
         content = self.request.get('content')
         if subject and content:
-            datastore.Article.update(id, subject, content)
+            Post.update(id, subject, content)
             self.redirect('/' + str(id))
         else:
             error = "WE NEED BOTH SUBJECT AND CONTENT"
@@ -266,28 +268,28 @@ class CommentPost(SignUpHandler):
 
     def get(self, id, comment_id=''):
         if self.user and not comment_id:
-            self.render_comment(datastore.Article.by_id(id).subject)
+            self.render_comment(Post.by_id(id).subject)
         else:
-            self.render_comment(datastore.Article.by_id(id).subject,
-                                datastore.Comment.by_id(comment_id).text)
+            self.render_comment(Post.by_id(id).subject,
+                                Comment.by_id(comment_id).text)
 
     def post(self, id, comment_id=''):
         comment = self.request.get('comment')
-        article = datastore.Article.by_id(id)
+        article = Post.by_id(id)
         print self.user
         if not comment:
             self.render_comment(article.subject,
                                 error="COMMENTS CAN'T BE EMPTY")
         else:
             if not comment_id:
-                c = datastore.Comment(article=article,
-                                      author=self.user,
-                                      text=comment)
+                c = Comment(article=article,
+                            author=self.user,
+                            text=comment)
             else:
-                if comment_id and datastore.Comment.get_author(comment_id) != self.user:
+                if comment_id and Comment.get_author(comment_id) != self.user:
                     return self.redirect('/deleteError')
                 else:
-                    c = datastore.Comment.by_id(comment_id)
+                    c = Comment.by_id(comment_id)
                     c.text = comment
             c.put()
             time.sleep(.1)
