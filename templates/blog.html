@@ -31,10 +31,10 @@
         <p>{{comment.text}}</p>
         <div class="edit-comment">
             {% if user == comment.author.user%}
-            <a href="/comment/{{post.key().id()}}/{{comment.key().id()}}">Edit</a>
-            <a href="/delete/{{post.key().id()}}/{{comment.key().id()}}">Delete</a> {% endif %}
+            <a href="/comment_edit/{{comment.key().id()}}">Edit</a>
+            <a href="/delete_comment/{{comment.key().id()}}">Delete</a> {% endif %}
         </div>
         <hr> {% endfor %}
     </div>{% endif %}
 </div>
-{% endfor %} {% endblock content %} {# http://localhost:8080/6192449487634432 #}
+{% endfor %} {% endblock content %}

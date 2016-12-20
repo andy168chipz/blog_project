@@ -81,6 +81,27 @@ class SignUpHandler(Handler):
         return wrapper
 
     @classmethod
+    def user_owns_comment(cls, f):
+        @wraps(f)
+        def wrapper(self, id):
+            user = Comment.get_author(id)
+            if user and user.user == self.user:
+                f(self, id)
+            else:
+                self.render_error('You don\'t own this comment')
+        return wrapper
+
+    @classmethod
+    def comment_exist(cls, f):
+        @wraps(f)
+        def wrapper(self, id):
+            if Comment.by_id(id):
+                f(self, id)
+            else:
+                self.render_error('Comment doesn\'t exist!')
+        return wrapper
+
+    @classmethod
     def post_exists(cls, f):
         '''decorator for post exist'''
         @wraps(f)
@@ -317,11 +338,46 @@ class CommentPost(SignUpHandler):
 
 
 class DeleteComment(SignUpHandler):
-    def get(self, cid):
-        pass
+    @SignUpHandler.comment_exist
+    @SignUpHandler.user_owns_comment
+    def get(self, id):
+        self.render("delete.html")
 
-    def post(self, cid):
-        pass
+    @SignUpHandler.comment_exist
+    @SignUpHandler.user_owns_comment
+    def post(self, id):
+        yes = self.request.get('yes')
+        no = self.request.get('no')
+        if no:
+            return self.redirect('/')
+        elif yes:
+            Comment.delete(id)
+        else:
+            self.render_error('There has been an error')
+        time.sleep(.1)
+        self.redirect('/')
+
+
+class EditComment(CommentPost):
+    @SignUpHandler.comment_exist
+    @SignUpHandler.user_owns_comment
+    def get(self, id):
+        c = Comment.by_id(id)
+        self.render_comment(c.post.subject, c.text)
+
+    @SignUpHandler.comment_exist
+    @SignUpHandler.user_owns_comment
+    def post(self, id):
+        text = self.request.get('comment')
+        c = Comment.by_id(id)
+        if text:
+            c.text = text
+            c.put()
+            time.sleep(.1)
+            self.redirect('/')
+        else:
+            self.render_comment(subject=c.subject,
+                                error="Comments can't be empty")
 
 
 class DeleteError(SignUpHandler):
@@ -339,8 +395,8 @@ app = webapp2.WSGIApplication([
     ('/(\d+)', Blog),
     ('/edit/(\d+)', Edit),
     ('/delete/(\d+)', Delete),
-    # ('/delete/(\d+)/(\d+)', Delete),
+    ('/delete_comment/(\d+)', DeleteComment),
     ('/comment/(\d+)', CommentPost),
-    # ('/comment/(\d+)/(\d+)', CommentPost),
+    ('/comment_edit/(\d+)', EditComment),
     ('/deleteError', DeleteError)
 ], debug=True)
