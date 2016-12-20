@@ -10,7 +10,7 @@ class Post(db.Model):
     subject = db.StringProperty(required=True)
     content = db.TextProperty(required=True)
     created = db.DateTimeProperty(auto_now_add=True)
-    author = db.RefernceProperty(user.User, collection_name="posts")
+    author = db.ReferenceProperty(user.User, collection_name="posts")
 
     @classmethod
     def by_id(cls, id):

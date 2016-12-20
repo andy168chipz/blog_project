@@ -18,10 +18,11 @@ import jinja2
 import re
 import hmac
 import time
-from comment import Comment
-from post import Post
-from user import User
+from models.comment import Comment
+from models.post import Post
+from models.user import User
 from google.appengine.ext import db
+from functools import wraps
 
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = jinja2.Environment(loader=jinja2.FileSystemLoader(template_dir),
@@ -57,6 +58,38 @@ class Handler(webapp2.RequestHandler):
 
 
 class SignUpHandler(Handler):
+    @classmethod
+    def user_logged_in(cls, f):
+        @wraps(f)
+        def wrapper(self, *args, **kargs):
+            if self.user:
+                f(self, *args, **kargs)
+            else:
+                self.remove_cookie('id')
+                self.redirect('/login')
+        return wrapper
+
+    @classmethod
+    def user_owns_post(cls, f):
+        @wraps(f)
+        def wrapper(self, id):
+            user = Post.get_author(id)
+            if user and user.user == self.user:
+                f(self, id)
+            else:
+                self.render_error('You don\'t own this post')
+        return wrapper
+
+    @classmethod
+    def post_exists(cls, f):
+        '''decorator for post exist'''
+        @wraps(f)
+        def wrapper(self, id):
+            if Post.by_id(id):
+                f(self, id)
+            else:
+                self.render_error('Post doesn\'t exist')
+        return wrapper
 
     def valid_username(self, username):
         user_re = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
@@ -133,17 +166,17 @@ class SignUpHandler(Handler):
         uid = self.read_cookie('id')
         self.user = uid
 
+    def render_error(self, error):
+        self.render('error.html', error=error)
+
 
 class welcome(SignUpHandler):
+    @SignUpHandler.user_logged_in
     def get(self):
-        if self.user:
-            self.render('welcome.html', username=self.user)
-        else:
-            self.redirect('/signup')
+        self.render('welcome.html', username=self.user)
 
 
 class login(SignUpHandler):
-
     def get(self):
         self.render('login.html')
 
@@ -151,7 +184,6 @@ class login(SignUpHandler):
         username = self.request.get('username')
         password = self.request.get('password')
         if User.login(username, password):
-            print 'success'
             self.set_secure_cookie('id', username)
             self.redirect('/welcome')
         else:
@@ -165,40 +197,34 @@ class logout(SignUpHandler):
 
 
 class MainPage(SignUpHandler):
-
     def get(self):
-        q = db.GqlQuery("select * from Article order by created desc")
-        articles = q.fetch(limit=10)
-        params = {'articles': articles}
+        q = db.GqlQuery("select * from Post order by created desc")
+        posts = q.fetch(limit=10)
+        params = {'posts': posts}
         if self.user:
             params['user'] = self.user
         self.render('blog.html', **params)
 
 
 class NewPost(SignUpHandler):
-
     def render_post(self, subject='', content='', error=''):
         self.render(
             'newpost.html', subject=subject, content=content,
             error=error, Title='New Post', submit_text="Submit")
 
+    @SignUpHandler.user_logged_in
     def get(self):
-        if self.user:
-            self.render_post()
-        else:
-            self.remove_cookie('id')
-            self.redirect('/login')
+        self.render_post()
 
+    @SignUpHandler.user_logged_in
     def post(self):
-        if not self.user:
-            return self.redirect('/login')
         subject = self.request.get('subject')
         content = self.request.get('content')
         if subject and content:
             article = Post(
-                subject=subject, content=content, author=self.user)
+                subject=subject, content=content)
+            article.author = User.by_name(self.user)
             article.put()
-            # print article.key().id()
             self.redirect('/' + str(article.key().id()))
         else:
             error = "WE NEED BOTH SUBJECT AND CONTENT"
@@ -207,33 +233,30 @@ class NewPost(SignUpHandler):
 
 class Blog(SignUpHandler):
     def get(self, id):
-        print id
-        key = db.Key.from_path('Article', int(id))
-        article = db.get(key)
-        articles = []
-        articles.append(article)
-        self.render('blog.html', articles=articles, user=self.user)
+        key = db.Key.from_path('Post', int(id))
+        post = db.get(key)
+        posts = []
+        posts.append(post)
+        self.render('blog.html', posts=posts, user=self.user)
 
 
 class Delete(SignUpHandler):
-    def get(self, id, comment_id=''):
+    @SignUpHandler.post_exists
+    @SignUpHandler.user_owns_post
+    def get(self, id):
         self.render("delete.html")
 
-    def post(self, id, comment_id=''):
-        if not self.user:
-            return self.redirect('/login')
-        if comment_id and Comment.get_author(comment_id) != self.user:
-            return self.redirect('/deleteError')
-        elif id and Post.get_author(id) != self.user and not comment_id:
-            return self.redirect('/deleteError')
+    @SignUpHandler.post_exists
+    @SignUpHandler.user_owns_post
+    def post(self, id):
         yes = self.request.get('yes')
         no = self.request.get('no')
         if no:
             self.redirect('/' + str(id))
-        elif yes and comment_id:
-            Comment.delete(comment_id)
-        else:
+        elif yes:
             Post.delete(id)
+        else:
+            self.render_error('There has been an error')
         time.sleep(.1)
         self.redirect('/')
 
@@ -245,12 +268,16 @@ class Edit(SignUpHandler):
             content=content, error=error,
             Title="Edit Post", submit_text="Save")
 
+    @SignUpHandler.post_exists
+    @SignUpHandler.user_owns_post
     def get(self, id):
         article = Post.by_id(id)
         self.render_post(subject=article.subject, content=article.content)
 
+    @SignUpHandler.post_exists
+    @SignUpHandler.user_owns_post
     def post(self, id):
-        if id and Post.get_author(id) != self.user:
+        if id and Post.get_author(id).user != self.user:
             return self.redirect('/deleteError')
         subject = self.request.get('subject')
         content = self.request.get('content')
@@ -266,34 +293,35 @@ class CommentPost(SignUpHandler):
     def render_comment(self, subject, text="", error=""):
         self.render('comment.html', subject=subject, text=text, error=error)
 
-    def get(self, id, comment_id=''):
-        if self.user and not comment_id:
-            self.render_comment(Post.by_id(id).subject)
-        else:
-            self.render_comment(Post.by_id(id).subject,
-                                Comment.by_id(comment_id).text)
+    @SignUpHandler.post_exists
+    @SignUpHandler.user_owns_post
+    def get(self, id):
+        self.render_comment(Post.by_id(id).subject)
 
-    def post(self, id, comment_id=''):
+    @SignUpHandler.post_exists
+    @SignUpHandler.user_owns_post
+    def post(self, id):
         comment = self.request.get('comment')
         article = Post.by_id(id)
-        print self.user
         if not comment:
             self.render_comment(article.subject,
                                 error="COMMENTS CAN'T BE EMPTY")
         else:
-            if not comment_id:
-                c = Comment(article=article,
-                            author=self.user,
-                            text=comment)
-            else:
-                if comment_id and Comment.get_author(comment_id) != self.user:
-                    return self.redirect('/deleteError')
-                else:
-                    c = Comment.by_id(comment_id)
-                    c.text = comment
+            c = Comment(article=article,
+                        text=comment)
+            c.author = User.by_name(self.user)
+            c.post = Post.by_id(id)
             c.put()
             time.sleep(.1)
             self.redirect('/')
+
+
+class DeleteComment(SignUpHandler):
+    def get(self, cid):
+        pass
+
+    def post(self, cid):
+        pass
 
 
 class DeleteError(SignUpHandler):
@@ -311,8 +339,8 @@ app = webapp2.WSGIApplication([
     ('/(\d+)', Blog),
     ('/edit/(\d+)', Edit),
     ('/delete/(\d+)', Delete),
-    ('/delete/(\d+)/(\d+)', Delete),
+    # ('/delete/(\d+)/(\d+)', Delete),
     ('/comment/(\d+)', CommentPost),
-    ('/comment/(\d+)/(\d+)', CommentPost),
+    # ('/comment/(\d+)/(\d+)', CommentPost),
     ('/deleteError', DeleteError)
 ], debug=True)

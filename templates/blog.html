@@ -5,30 +5,34 @@
     <a class="login-link" href="/login">login</a> |
     <a class="login-link" href="/signup">signup</a> {% endif %}
 </div>
-{% for article in articles %}
+{% if not posts %}
+    <h2 style="text-align: center;">The blog is empty, write something!</h2>
+{% endif %}
+{% for post in posts %}
 <div class="article">
     <div class="article-subject">
-        <h3>Subject: {{article.subject}}</h3>
-        <h6>{{article.created}}</h6>
+        <h3>Subject: {{post.subject}}</h3>
+        <h6>{{post.created}}</h6>
     </div>
     <hr>
     <div class="article-content">
-        <p>{{article.content}}</p>
+        <p>{{post.content}}</p>
     </div>
     <div class="edit">
         {% if user %}
-        <a href="/comment/{{article.key().id()}}">Comment</a> {% endif %} {% if user == article.author%}
-        <a href="/edit/{{article.key().id()}}">Edit</a>
-        <a href="/delete/{{article.key().id()}}">Delete</a> {% endif %}
+        <a href="/comment/{{post.key().id()}}">Comment</a> {% endif %}
+        {% if user == post.author.user%}
+        <a href="/edit/{{post.key().id()}}">Edit</a>
+        <a href="/delete/{{post.key().id()}}">Delete</a> {% endif %}
     </div>
-    {% if article.comments.count() > 0 %}
+    {% if post.comments.count() > 0 %}
     <div class="comments">
-        <h4>comments to post : {{article.subject}}</h4> {% for comment in article.comments %}
+        <h4>comments to post : {{post.subject}}</h4> {% for comment in post.comments %}
         <p>{{comment.text}}</p>
         <div class="edit-comment">
-            {% if user == comment.author%}
-            <a href="/comment/{{article.key().id()}}/{{comment.key().id()}}">Edit</a>
-            <a href="/delete/{{article.key().id()}}/{{comment.key().id()}}">Delete</a> {% endif %}
+            {% if user == comment.author.user%}
+            <a href="/comment/{{post.key().id()}}/{{comment.key().id()}}">Edit</a>
+            <a href="/delete/{{post.key().id()}}/{{comment.key().id()}}">Delete</a> {% endif %}
         </div>
         <hr> {% endfor %}
     </div>{% endif %}
