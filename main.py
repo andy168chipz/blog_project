@@ -70,6 +70,20 @@ class SignUpHandler(Handler):
         return wrapper
 
     @classmethod
+    def not_own_post_and_not_liked(cls, f):
+        @wraps(f)
+        def wrapper(self, id):
+            user = Post.get_author(id)
+            likes = Post.get_likes(id)
+            if user and user.user != self.user and self.user not in likes:
+                f(self, id)
+            else:
+                self.render_error(
+                    'You cannot like twice!'if self.user in likes
+                    else 'You cannot like your own post')
+        return wrapper
+
+    @classmethod
     def user_owns_post(cls, f):
         @wraps(f)
         def wrapper(self, id):
@@ -380,6 +394,18 @@ class EditComment(CommentPost):
                                 error="Comments can't be empty")
 
 
+class LikePost(SignUpHandler):
+    @SignUpHandler.post_exists
+    @SignUpHandler.user_logged_in
+    @SignUpHandler.not_own_post_and_not_liked
+    def get(self, id):
+        p = Post.by_id(id)
+        p.likes.append(self.user)
+        p.put()
+        time.sleep(.1)
+        self.redirect('/')
+
+
 class DeleteError(SignUpHandler):
     def get(self):
         self.render('error.html')
@@ -398,5 +424,6 @@ app = webapp2.WSGIApplication([
     ('/delete_comment/(\d+)', DeleteComment),
     ('/comment/(\d+)', CommentPost),
     ('/comment_edit/(\d+)', EditComment),
+    ('/like/(\d+)', LikePost),
     ('/deleteError', DeleteError)
 ], debug=True)

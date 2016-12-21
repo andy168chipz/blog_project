@@ -10,6 +10,7 @@ class Post(db.Model):
     subject = db.StringProperty(required=True)
     content = db.TextProperty(required=True)
     created = db.DateTimeProperty(auto_now_add=True)
+    likes = db.StringListProperty()
     author = db.ReferenceProperty(user.User, collection_name="posts")
 
     @classmethod
@@ -31,3 +32,7 @@ class Post(db.Model):
     @classmethod
     def get_author(cls, id):
         return cls.by_id(id).author
+
+    @classmethod
+    def get_likes(cls, id):
+        return cls.by_id(id).likes

@@ -24,6 +24,9 @@
         {% if user == post.author.user%}
         <a href="/edit/{{post.key().id()}}">Edit</a>
         <a href="/delete/{{post.key().id()}}">Delete</a> {% endif %}
+        {% if  user != post.author.user%}
+        <a href="/like/{{post.key().id()}}">Like({{post.likes|length}})</a>
+        {% endif %}
     </div>
     {% if post.comments.count() > 0 %}
     <div class="comments">
